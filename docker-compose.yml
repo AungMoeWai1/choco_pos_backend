@@ -1,36 +1,46 @@
 version: "3.9"
 
+# ---------------------------------------------------------------------------
+# Choco POS — full stack
+# Assumes both repos are cloned side by side:
+#   choco_pos_backend/   ← this file lives here
+#   choco_pos_frontend/
+#
+# Copy .env.example to .env and fill in values before starting.
+# ---------------------------------------------------------------------------
+
 services:
+
+  # ── PostgreSQL ─────────────────────────────────────────────────────────────
   db:
     image: postgres:16-alpine
     restart: unless-stopped
     volumes:
       - postgres_data:/var/lib/postgresql/data
     environment:
-      POSTGRES_DB: ${DB_NAME:-choco_pos_db}
-      POSTGRES_USER: ${DB_USER:-postgres}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
-    ports:
-      - "5432:5432"
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres}"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER}"]
       interval: 10s
       timeout: 5s
       retries: 5
 
+  # ── Redis ──────────────────────────────────────────────────────────────────
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    ports:
-      - "6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
 
-  web:
-    build: .
+  # ── Django REST API ────────────────────────────────────────────────────────
+  backend:
+    build:
+      context: .
     restart: unless-stopped
     command: >
       sh -c "python manage.py migrate &&
@@ -45,28 +55,49 @@ services:
       - media_data:/app/media
       - logs_data:/app/logs
     ports:
-      - "8000:8000"
-    env_file:
-      - .env
+      - "${BACKEND_PORT:-8000}:8000"
     environment:
+      SECRET_KEY: ${SECRET_KEY}
+      DEBUG: ${DEBUG:-False}
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS}
+      DB_NAME: ${DB_NAME}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
       DB_HOST: db
+      DB_PORT: 5432
       REDIS_URL: redis://redis:6379/0
+      JWT_ACCESS_TOKEN_LIFETIME_MINUTES: ${JWT_ACCESS_TOKEN_LIFETIME_MINUTES:-60}
+      JWT_REFRESH_TOKEN_LIFETIME_DAYS: ${JWT_REFRESH_TOKEN_LIFETIME_DAYS:-7}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS}
+      EMAIL_BACKEND: ${EMAIL_BACKEND:-django.core.mail.backends.console.EmailBackend}
+      EMAIL_HOST: ${EMAIL_HOST:-}
+      EMAIL_PORT: ${EMAIL_PORT:-587}
+      EMAIL_USE_TLS: ${EMAIL_USE_TLS:-True}
+      EMAIL_HOST_USER: ${EMAIL_HOST_USER:-}
+      EMAIL_HOST_PASSWORD: ${EMAIL_HOST_PASSWORD:-}
+      MEDIA_URL: ${MEDIA_URL:-/media/}
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
 
+  # ── Celery Worker ──────────────────────────────────────────────────────────
   celery:
-    build: .
+    build:
+      context: .
     restart: unless-stopped
     command: celery -A config worker -l info -c 4
     volumes:
       - logs_data:/app/logs
-    env_file:
-      - .env
     environment:
+      SECRET_KEY: ${SECRET_KEY}
+      DEBUG: ${DEBUG:-False}
+      DB_NAME: ${DB_NAME}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
       DB_HOST: db
+      DB_PORT: 5432
       REDIS_URL: redis://redis:6379/0
     depends_on:
       db:
@@ -74,19 +105,37 @@ services:
       redis:
         condition: service_healthy
 
+  # ── Celery Beat ────────────────────────────────────────────────────────────
   celery-beat:
-    build: .
+    build:
+      context: .
     restart: unless-stopped
     command: celery -A config beat -l info
     volumes:
       - logs_data:/app/logs
-    env_file:
-      - .env
     environment:
+      SECRET_KEY: ${SECRET_KEY}
+      DEBUG: ${DEBUG:-False}
+      DB_NAME: ${DB_NAME}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
       DB_HOST: db
+      DB_PORT: 5432
       REDIS_URL: redis://redis:6379/0
     depends_on:
       - celery
+
+  # ── React Frontend (nginx) ─────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ../choco_pos_frontend
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL}
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-80}:80"
+    depends_on:
+      - backend
 
 volumes:
   postgres_data:
