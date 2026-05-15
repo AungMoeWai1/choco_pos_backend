@@ -42,15 +42,9 @@ services:
     build:
       context: .
     restart: unless-stopped
-    command: >
+    command: >-
       sh -c "python manage.py migrate &&
-             gunicorn config.wsgi:application
-             --bind 0.0.0.0:8000
-             --workers 4
-             --threads 2
-             --timeout 120
-             --access-logfile -
-             --error-logfile -"
+             gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 4 --threads 2 --timeout 120 --access-logfile - --error-logfile -"
     volumes:
       - media_data:/app/media
       - logs_data:/app/logs

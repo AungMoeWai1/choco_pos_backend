@@ -192,6 +192,7 @@ USE_TZ = True
 # ---------------------------------------------------------------------------
 # Static & Media
 # ---------------------------------------------------------------------------
+STATIC_URL = "/static/"          # required by Django internals; not served by this API
 MEDIA_URL = env("MEDIA_URL", default="/media/")
 MEDIA_ROOT = BASE_DIR / "media"
 
